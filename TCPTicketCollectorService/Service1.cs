@@ -69,15 +69,6 @@ namespace TCPTicketCollectorService
                     eventLog1.WriteEntry($"Não foi possível iniciar o servidor. {ex}", EventLogEntryType.Error);
                 }
             }
-
-            
-
-
-
-            // Perform a blocking call to accept requests.
-            // You could also use server.AcceptSocket() here.
-
-
         }
 
         protected override void OnStart(string[] args)
@@ -90,7 +81,8 @@ namespace TCPTicketCollectorService
 
             //eventLog1.WriteEntry("Iniciando serviço.");
 
-            filePath = ConfigurationManager.AppSettings["OutputFolder"];            
+            filePath = ConfigurationManager.AppSettings["OutputFolder"];
+            CheckFile();
 
             Timer timer = new Timer();
             timer.Interval = double.Parse(ConfigurationManager.AppSettings["CheckInterval"]); // 30 seconds
@@ -98,8 +90,7 @@ namespace TCPTicketCollectorService
             timer.Start();
 
 
-            fileName = $"Ticket_{DateTime.Now.Day}{(DateTime.Now.Month < 10 ? "0" + DateTime.Now.Month.ToString() : DateTime.Now.Month.ToString())}{DateTime.Now.Year}.csv";
-            path = Path.Combine(filePath, fileName);
+            
 
 
             // Update the service state to Running.
@@ -116,9 +107,6 @@ namespace TCPTicketCollectorService
 
             
 
-            fileName = $"Ticket_{DateTime.Now.Day}{(DateTime.Now.Month < 10 ? "0" + DateTime.Now.Month.ToString() : DateTime.Now.Month.ToString())}{DateTime.Now.Year}.csv";
-            path = Path.Combine(filePath, fileName);
-
             try
             {
                 // Get a stream object for reading and writing
@@ -127,6 +115,8 @@ namespace TCPTicketCollectorService
                 // Buffer for reading data
                 Byte[] bytes = new Byte[256];
                 int i;
+
+                CheckFile();
 
                 // Loop to receive all the data sent by the client.
                 while ((i = stream.Read(bytes, 0, bytes.Length)) != 0)
@@ -142,10 +132,10 @@ namespace TCPTicketCollectorService
                     if (!File.Exists(path))
                     {
                         var file = File.AppendText(path);
-                        file.Write("Horario inicial da chamada,Tempo de conexao,Tempo de toque,Chamador,Direcao,Numero chamado,Numero discado,Codigo de conta,E interno,ID da chamada,Continuacao,Dispositivo da parte1,Nome da parte1,Dispositivo da parte2,Nome da parte2,Tempo em espera,Tempo de estacionamento,Autorizacao valida,Codigo de autorizacao,Usuario cobrado,Cobranca de chamada,Moeda,Valor na ultima mudanca de usuario,Unidades de chamada,Unidades na ultima mudanca de usuario,Custo por unidade,Marcacao,Causa do destino externo,ID do destino externo,Numero do destino externo,Endereco IP do servidor do chamador,ID exclusiva da chamada para o ramal do chamador,Endereco IP do servidor do receptor da chamada,ID exclusiva da chamada para o ramal chamado,Horario do registro SMDR,Diretriz de consentimento do chamador,Verificacao do numero chamador,Outros\n");
+                        file.Write("Horario inicial da chamada;Tempo de conexao;Tempo de toque;Chamador;Direcao;Numero chamado;Numero discado;Codigo de conta;E interno;ID da chamada;Continuacao;Dispositivo da parte1;Nome da parte1;Dispositivo da parte2;Nome da parte2;Tempo em espera;Tempo de estacionamento;Autorizacao valida;Codigo de autorizacao;Usuario cobrado;Cobranca de chamada;Moeda;Valor na ultima mudanca de usuario;Unidades de chamada;Unidades na ultima mudanca de usuario;Custo por unidade;Marcacao;Causa do destino externo;ID do destino externo;Numero do destino externo;Endereco IP do servidor do chamador;ID exclusiva da chamada para o ramal do chamador;Endereco IP do servidor do receptor da chamada;ID exclusiva da chamada para o ramal chamado;Horario do registro SMDR;Diretriz de consentimento do chamador;Verificacao do numero chamador;Outros\n");
                         file.Close();
                     }
-                    Write2File(data);
+                    Write2File(data.Replace(",", ";"));
 
                     /*byte[] msg = Encoding.ASCII.GetBytes(data);
                     // Send back a response.
@@ -212,6 +202,16 @@ namespace TCPTicketCollectorService
             } catch (Exception ex) {
                 eventLog1.WriteEntry($"Não foi possível escrever o log.\n\n{ex}", EventLogEntryType.Error);
             }
+        }
+
+        public void CheckFile()
+        {
+            string day = DateTime.Now.Day < 10 ? "0" + DateTime.Now.Day.ToString() : DateTime.Now.Day.ToString();
+            string month = DateTime.Now.Month < 10 ? "0" + DateTime.Now.Month.ToString() : DateTime.Now.Month.ToString();
+            string year = DateTime.Now.Year.ToString();
+
+            fileName = $"Ticket_{day}{month}{year}.csv";
+            path = Path.Combine(filePath, fileName);
         }
     }
 }
