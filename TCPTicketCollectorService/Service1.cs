@@ -8,6 +8,7 @@ using System.Text;
 using System.Configuration;
 using System.Timers;
 using System.Runtime.InteropServices;
+using log4net;
 
 namespace TCPTicketCollectorService
 {
@@ -23,11 +24,14 @@ namespace TCPTicketCollectorService
         TcpListener server;
         bool reset;
 
+
+        ILog logger = LogManager.GetLogger("RollingLogFileAppender");
+
         public TCPTicketCollectorService()
         {
             InitializeComponent();
 
-            eventLog1 = new EventLog();
+            /*eventLog1 = new EventLog();
             if (!EventLog.SourceExists("TicketCollectorService"))
             {
                 EventLog.CreateEventSource(
@@ -35,7 +39,7 @@ namespace TCPTicketCollectorService
             }
             eventLog1.Source = "TicketCollectorService";
             eventLog1.Log = "NewLog";
-
+*/
             try
             {
                 // Set the TcpListener.
@@ -47,20 +51,23 @@ namespace TCPTicketCollectorService
                 // Start listening for client requests.
                 server.Start();
 
-                eventLog1.WriteEntry("Servidor iniciado.", EventLogEntryType.Information);
-                eventLog1.WriteEntry($"Servidor iniciado.\n\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg", EventLogEntryType.Information);
-                eventLog1.WriteEntry("Aguardando conexão... ", EventLogEntryType.Information);
+                //eventLog1.WriteEntry("Servidor iniciado.", EventLogEntryType.Information);
+                //eventLog1.WriteEntry($"Servidor iniciado.\n\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg", EventLogEntryType.Information);
+                logger.Info($"Servidor iniciado.\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg\nAguardando conexão...");
+                //eventLog1.WriteEntry("Aguardando conexão... ", EventLogEntryType.Information);
 
                 server.AcceptTcpClientAsync().ContinueWith(result => {
                     client = result.Result;
-                    eventLog1.WriteEntry("Conectado ao PABX", EventLogEntryType.Information);
+                    //eventLog1.WriteEntry("Conectado ao PABX", EventLogEntryType.Information);
                     // TODO: Insert monitoring activities here.
-                    eventLog1.WriteEntry("Monitorando o sistema.", EventLogEntryType.Information);
+                    //eventLog1.WriteEntry("Monitorando o sistema.", EventLogEntryType.Information);
+                    logger.Info("Conectado ao PABX... Monitorando o sistema");
                 });
             }
             catch(Exception ex)
             {
-                eventLog1.WriteEntry($"Erro na instanciação do TcpListener.\n\n{ex}", EventLogEntryType.Error);
+                //eventLog1.WriteEntry($"Erro na instanciação do TcpListener.\n\n{ex}", EventLogEntryType.Error);
+                logger.Error($"Erro na instanciação do TcpListener.\n\n{ex}");
             } 
         }
 
@@ -99,20 +106,20 @@ namespace TCPTicketCollectorService
                     // Start listening for client requests.
                     server.Start();
 
-                    eventLog1.WriteEntry("Servidor iniciado.", EventLogEntryType.Information);
-                    eventLog1.WriteEntry($"Servidor iniciado.\n\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg", EventLogEntryType.Information);
-                    eventLog1.WriteEntry("Aguardando conexão... ", EventLogEntryType.Information);
+                    logger.Info($"Servidor iniciado.\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg\nAguardando conexão...");
 
                     server.AcceptTcpClientAsync().ContinueWith(result =>
                     {
                         client = result.Result;
-                        eventLog1.WriteEntry("Conectado ao PABX", EventLogEntryType.Information);
+                        //eventLog1.WriteEntry("Conectado ao PABX", EventLogEntryType.Information);
                         // TODO: Insert monitoring activities here.
-                        eventLog1.WriteEntry("Monitorando o sistema.", EventLogEntryType.Information);
+                        //eventLog1.WriteEntry("Monitorando o sistema.", EventLogEntryType.Information);
+                        logger.Info("Conectado ao PABX... Monitorando o sistema");
                     });
                 } catch (Exception ex)
                 {
-                    eventLog1.WriteEntry($"Erro na instanciação do TcpListener.\n\n{ex}", EventLogEntryType.Error);
+                    //eventLog1.WriteEntry($"Erro na instanciação do TcpListener.\n\n{ex}", EventLogEntryType.Error);
+                    logger.Error($"Erro na instanciação do TcpListener.\n{ex}");
                 }
 
             } else
@@ -121,11 +128,11 @@ namespace TCPTicketCollectorService
             }
 
             if (client == null || !client.Connected) {
-                eventLog1.WriteEntry("Nenhuma central conectada.", EventLogEntryType.Warning);
+                //eventLog1.WriteEntry("Nenhuma central conectada.", EventLogEntryType.Warning);
+                logger.Info("Nenhuma central conectada");
                 return;
             }
 
-            
 
             try
             {
@@ -143,7 +150,8 @@ namespace TCPTicketCollectorService
                 {
                     // Translate data bytes to a ASCII string.
                     string data = Encoding.ASCII.GetString(bytes, 0, i);
-                    eventLog1.WriteEntry($"Recebendo informação da central e escrevendo no arquivo {fileName}", EventLogEntryType.Information);
+                    //eventLog1.WriteEntry($"Recebendo informação da central e escrevendo no arquivo {fileName}", EventLogEntryType.Information);
+                    logger.Debug($"Recebendo informação da central e escrevendo no arquivo {fileName}");
 
                     // Write array of strings to a file using WriteAllLines.
                     // If the file does not exists, it will create a new file.
@@ -151,6 +159,7 @@ namespace TCPTicketCollectorService
                     //eventLog1.WriteEntry($"Escrevendo no arquivo.", EventLogEntryType.Information);
                     if (!File.Exists(path))
                     {
+                        logger.Debug($"Criando novo arquivo {fileName}");
                         var file = File.AppendText(path);
                         file.Write("Horario inicial da chamada;Tempo de conexao;Tempo de toque;Chamador;Direcao;Numero chamado;Numero discado;Codigo de conta;E interno;ID da chamada;Continuacao;Dispositivo da parte1;Nome da parte1;Dispositivo da parte2;Nome da parte2;Tempo em espera;Tempo de estacionamento;Autorizacao valida;Codigo de autorizacao;Usuario cobrado;Cobranca de chamada;Moeda;Valor na ultima mudanca de usuario;Unidades de chamada;Unidades na ultima mudanca de usuario;Custo por unidade;Marcacao;Causa do destino externo;ID do destino externo;Numero do destino externo;Endereco IP do servidor do chamador;ID exclusiva da chamada para o ramal do chamador;Endereco IP do servidor do receptor da chamada;ID exclusiva da chamada para o ramal chamado;Horario do registro SMDR;Diretriz de consentimento do chamador;Verificacao do numero chamador;Outros\n");
                         file.Close();
@@ -165,7 +174,8 @@ namespace TCPTicketCollectorService
             }
             catch (SocketException e)
             {
-                eventLog1.WriteEntry($"Erro na leitura de dados.\n\n{e}", EventLogEntryType.Error);
+                //eventLog1.WriteEntry($"Erro na leitura de dados.\n\n{e}", EventLogEntryType.Error);
+                logger.Error($"Erro na leitura de dados.\n{e}");
             }
         }
 
@@ -176,7 +186,8 @@ namespace TCPTicketCollectorService
             serviceStatus.dwWaitHint = 100000;
             SetServiceStatus(this.ServiceHandle, ref serviceStatus);
 
-            eventLog1.WriteEntry("Parando serviço.");
+            //eventLog1.WriteEntry("Parando serviço.");
+            logger.Info("Parando serviço");
 
             // Update the service state to Stopped.
             serviceStatus.dwCurrentState = ServiceState.SERVICE_STOPPED;
@@ -219,7 +230,8 @@ namespace TCPTicketCollectorService
                 file.Write(data);
                 file.Close();
             } catch (Exception ex) {
-                eventLog1.WriteEntry($"Não foi possível escrever o log.\n\n{ex}", EventLogEntryType.Error);
+                //eventLog1.WriteEntry($"Não foi possível escrever o log.\n\n{ex}", EventLogEntryType.Error);
+                logger.Error($"Não foi possível escrever o log.\n\n{ex}");
             }
         }
 
