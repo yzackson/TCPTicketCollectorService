@@ -49,20 +49,7 @@ namespace TCPTicketCollectorService
                 server = new TcpListener(localAddr, port);
 
                 // Start listening for client requests.
-                server.Start();
-
-                //eventLog1.WriteEntry("Servidor iniciado.", EventLogEntryType.Information);
-                //eventLog1.WriteEntry($"Servidor iniciado.\n\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg", EventLogEntryType.Information);
-                logger.Info($"Servidor iniciado.\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg\nAguardando conexão...");
-                //eventLog1.WriteEntry("Aguardando conexão... ", EventLogEntryType.Information);
-
-                server.AcceptTcpClientAsync().ContinueWith(result => {
-                    client = result.Result;
-                    //eventLog1.WriteEntry("Conectado ao PABX", EventLogEntryType.Information);
-                    // TODO: Insert monitoring activities here.
-                    //eventLog1.WriteEntry("Monitorando o sistema.", EventLogEntryType.Information);
-                    logger.Info("Conectado ao PABX... Monitorando o sistema");
-                });
+                StartServer();
             }
             catch(Exception ex)
             {
@@ -97,31 +84,12 @@ namespace TCPTicketCollectorService
 
         public void OnTimer(object sender, ElapsedEventArgs args)
         {
-            if(DateTime.Now.TimeOfDay < new TimeSpan(0,10,0) && reset)
+            if(DateTime.Now.TimeOfDay < new TimeSpan(int.Parse(ConfigurationManager.AppSettings["ResetHour"]), 0,0) && reset)
             {
+                logger.Debug("Restarting TCP Server");
                 server.Stop();
                 System.Threading.Thread.Sleep(5000);
-                try
-                {
-                    // Start listening for client requests.
-                    server.Start();
-
-                    logger.Info($"Servidor iniciado.\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg\nAguardando conexão...");
-
-                    server.AcceptTcpClientAsync().ContinueWith(result =>
-                    {
-                        client = result.Result;
-                        //eventLog1.WriteEntry("Conectado ao PABX", EventLogEntryType.Information);
-                        // TODO: Insert monitoring activities here.
-                        //eventLog1.WriteEntry("Monitorando o sistema.", EventLogEntryType.Information);
-                        logger.Info("Conectado ao PABX... Monitorando o sistema");
-                    });
-                } catch (Exception ex)
-                {
-                    //eventLog1.WriteEntry($"Erro na instanciação do TcpListener.\n\n{ex}", EventLogEntryType.Error);
-                    logger.Error($"Erro na instanciação do TcpListener.\n{ex}");
-                }
-
+                StartServer();
             } else
             {
                 reset = false;
@@ -243,6 +211,31 @@ namespace TCPTicketCollectorService
 
             fileName = $"Ticket_{day}{month}{year}.csv";
             path = Path.Combine(filePath, fileName);
+        }
+
+        public void StartServer()
+        {
+            try
+            {
+                // Start listening for client requests.
+                server.Start();
+
+                logger.Info($"Servidor iniciado.\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg\nHora do reset do socket: {int.Parse(ConfigurationManager.AppSettings["ResetHour"])}h\nAguardando conexão...");
+
+                server.AcceptTcpClientAsync().ContinueWith(result =>
+                {
+                    client = result.Result;
+                    //eventLog1.WriteEntry("Conectado ao PABX", EventLogEntryType.Information);
+                    // TODO: Insert monitoring activities here.
+                    //eventLog1.WriteEntry("Monitorando o sistema.", EventLogEntryType.Information);
+                    logger.Info($"Conectado ao PABX {client.Client.RemoteEndPoint}... Monitorando o sistema");
+                });
+            }
+            catch (Exception ex)
+            {
+                //eventLog1.WriteEntry($"Erro na instanciação do TcpListener.\n\n{ex}", EventLogEntryType.Error);
+                logger.Error($"Erro na instanciação do TcpListener.\n{ex}");
+            }
         }
     }
 }
