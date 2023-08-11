@@ -21,6 +21,7 @@ namespace TCPTicketCollectorService
         string fileName;
         TcpClient client;
         TcpListener server;
+        bool reset;
 
         public TCPTicketCollectorService()
         {
@@ -42,33 +43,25 @@ namespace TCPTicketCollectorService
                 IPAddress localAddr = IPAddress.Parse(ConfigurationManager.AppSettings["IPAddress"]);
                 // TcpListener server = new TcpListener(port);
                 server = new TcpListener(localAddr, port);
-            }
-            catch
-            {
-                eventLog1.WriteEntry("Erro na instanciação do TcpListener", EventLogEntryType.Error);
-            } finally
-            {
-                try
-                {
-                    // Start listening for client requests.
-                    server.Start();
 
-                    eventLog1.WriteEntry("Servidor iniciado.", EventLogEntryType.Information);
-                    eventLog1.WriteEntry($"Servidor iniciado.\n\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] +":"+ ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg", EventLogEntryType.Information);
-                    eventLog1.WriteEntry("Aguardando conexão... ", EventLogEntryType.Information);
+                // Start listening for client requests.
+                server.Start();
 
-                    server.AcceptTcpClientAsync().ContinueWith(result => {
-                        client = result.Result;
-                        eventLog1.WriteEntry("Conectado ao PABX", EventLogEntryType.Information);
-                        // TODO: Insert monitoring activities here.
-                        eventLog1.WriteEntry("Monitorando o sistema.", EventLogEntryType.Information);
-                    });
-                }
-                catch (Exception ex)
-                {
-                    eventLog1.WriteEntry($"Não foi possível iniciar o servidor. {ex}", EventLogEntryType.Error);
-                }
+                eventLog1.WriteEntry("Servidor iniciado.", EventLogEntryType.Information);
+                eventLog1.WriteEntry($"Servidor iniciado.\n\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg", EventLogEntryType.Information);
+                eventLog1.WriteEntry("Aguardando conexão... ", EventLogEntryType.Information);
+
+                server.AcceptTcpClientAsync().ContinueWith(result => {
+                    client = result.Result;
+                    eventLog1.WriteEntry("Conectado ao PABX", EventLogEntryType.Information);
+                    // TODO: Insert monitoring activities here.
+                    eventLog1.WriteEntry("Monitorando o sistema.", EventLogEntryType.Information);
+                });
             }
+            catch(Exception ex)
+            {
+                eventLog1.WriteEntry($"Erro na instanciação do TcpListener.\n\n{ex}", EventLogEntryType.Error);
+            } 
         }
 
         protected override void OnStart(string[] args)
@@ -90,9 +83,6 @@ namespace TCPTicketCollectorService
             timer.Start();
 
 
-            
-
-
             // Update the service state to Running.
             serviceStatus.dwCurrentState = ServiceState.SERVICE_RUNNING;
             SetServiceStatus(ServiceHandle, ref serviceStatus);
@@ -100,7 +90,37 @@ namespace TCPTicketCollectorService
 
         public void OnTimer(object sender, ElapsedEventArgs args)
         {
-            if(client == null || !client.Connected) {
+            if(DateTime.Now.TimeOfDay < new TimeSpan(0,10,0) && reset)
+            {
+                server.Stop();
+                System.Threading.Thread.Sleep(5000);
+                try
+                {
+                    // Start listening for client requests.
+                    server.Start();
+
+                    eventLog1.WriteEntry("Servidor iniciado.", EventLogEntryType.Information);
+                    eventLog1.WriteEntry($"Servidor iniciado.\n\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg", EventLogEntryType.Information);
+                    eventLog1.WriteEntry("Aguardando conexão... ", EventLogEntryType.Information);
+
+                    server.AcceptTcpClientAsync().ContinueWith(result =>
+                    {
+                        client = result.Result;
+                        eventLog1.WriteEntry("Conectado ao PABX", EventLogEntryType.Information);
+                        // TODO: Insert monitoring activities here.
+                        eventLog1.WriteEntry("Monitorando o sistema.", EventLogEntryType.Information);
+                    });
+                } catch (Exception ex)
+                {
+                    eventLog1.WriteEntry($"Erro na instanciação do TcpListener.\n\n{ex}", EventLogEntryType.Error);
+                }
+
+            } else
+            {
+                reset = false;
+            }
+
+            if (client == null || !client.Connected) {
                 eventLog1.WriteEntry("Nenhuma central conectada.", EventLogEntryType.Warning);
                 return;
             }
@@ -147,10 +167,6 @@ namespace TCPTicketCollectorService
             {
                 eventLog1.WriteEntry($"Erro na leitura de dados.\n\n{e}", EventLogEntryType.Error);
             }
-            finally
-            {
-                server.Stop();
-            }
         }
 
         protected override void OnStop()
@@ -165,6 +181,9 @@ namespace TCPTicketCollectorService
             // Update the service state to Stopped.
             serviceStatus.dwCurrentState = ServiceState.SERVICE_STOPPED;
             SetServiceStatus(this.ServiceHandle, ref serviceStatus);
+
+
+            server.Stop();
         }
 
 
