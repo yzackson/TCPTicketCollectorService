@@ -9,6 +9,8 @@ using System.Configuration;
 using System.Timers;
 using System.Runtime.InteropServices;
 using log4net;
+using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
 
 namespace TCPTicketCollectorService
 {
@@ -22,8 +24,8 @@ namespace TCPTicketCollectorService
         string fileName;
         TcpClient client;
         TcpListener server;
-        bool reset;
-
+        TimeSpan minResetHour;
+        TimeSpan maxResetHour;
 
         ILog logger = LogManager.GetLogger("RollingLogFileAppender");
 
@@ -42,6 +44,12 @@ namespace TCPTicketCollectorService
 */
             try
             {
+                var hour = int.Parse(ConfigurationManager.AppSettings["ResetHour"]);
+                var minute = int.Parse(ConfigurationManager.AppSettings["ResetMinute"]);
+                var interval = int.Parse(ConfigurationManager.AppSettings["CheckInterval"]);
+                minResetHour = new TimeSpan(hour, minute, 0);
+                maxResetHour = new TimeSpan(hour, minute, interval);
+
                 // Set the TcpListener.
                 Int32 port = Int32.Parse(ConfigurationManager.AppSettings["Port"]);
                 IPAddress localAddr = IPAddress.Parse(ConfigurationManager.AppSettings["IPAddress"]);
@@ -72,7 +80,7 @@ namespace TCPTicketCollectorService
             CheckFile();
 
             Timer timer = new Timer();
-            timer.Interval = double.Parse(ConfigurationManager.AppSettings["CheckInterval"]); // 30 seconds
+            timer.Interval = int.Parse(ConfigurationManager.AppSettings["CheckInterval"]) * 1000; // in seconds
             timer.Elapsed += new ElapsedEventHandler(OnTimer);
             timer.Start();
 
@@ -84,15 +92,23 @@ namespace TCPTicketCollectorService
 
         public void OnTimer(object sender, ElapsedEventArgs args)
         {
-            if(DateTime.Now.TimeOfDay < new TimeSpan(int.Parse(ConfigurationManager.AppSettings["ResetHour"]), 0,0) && reset)
+            if (minResetHour < DateTime.Now.TimeOfDay && DateTime.Now.TimeOfDay < maxResetHour)
             {
-                logger.Debug("Restarting TCP Server");
-                server.Stop();
-                System.Threading.Thread.Sleep(5000);
-                StartServer();
-            } else
-            {
-                reset = false;
+                logger.Info($"Reiniciando o Serviço...");
+                try
+                {
+                    if(client != null)
+                    {
+                        client.Close();
+                        client.Dispose();
+                    }
+                    server.Stop();
+                    StartServer();
+                } catch(Exception ex)
+                {
+                    logger.Error($"Falha ao reiniciar o serviço. \n {ex}");
+                }
+                return;
             }
 
             if (client == null || !client.Connected) {
@@ -147,6 +163,11 @@ namespace TCPTicketCollectorService
             }
         }
 
+        public void RestartService()
+        {
+            
+        }
+
         protected override void OnStop()
         {// Update the service state to Stop Pending.
             ServiceStatus serviceStatus = new ServiceStatus();
@@ -199,7 +220,7 @@ namespace TCPTicketCollectorService
                 file.Close();
             } catch (Exception ex) {
                 //eventLog1.WriteEntry($"Não foi possível escrever o log.\n\n{ex}", EventLogEntryType.Error);
-                logger.Error($"Não foi possível escrever o log.\n\n{ex}");
+                logger.Error($"Não foi possível escrever no arquivo.\n{ex}");
             }
         }
 
@@ -220,7 +241,7 @@ namespace TCPTicketCollectorService
                 // Start listening for client requests.
                 server.Start();
 
-                logger.Info($"Servidor iniciado.\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg\nHora do reset do socket: {int.Parse(ConfigurationManager.AppSettings["ResetHour"])}h\nAguardando conexão...");
+                logger.Debug($"Iniciando serviço.\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg\nHorário de reset do socket: entre {minResetHour} e {maxResetHour}\nAguardando conexão...");
 
                 server.AcceptTcpClientAsync().ContinueWith(result =>
                 {
