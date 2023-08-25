@@ -9,8 +9,6 @@ using System.Configuration;
 using System.Timers;
 using System.Runtime.InteropServices;
 using log4net;
-using System.Threading.Tasks;
-using System.Runtime.CompilerServices;
 
 namespace TCPTicketCollectorService
 {
@@ -19,52 +17,92 @@ namespace TCPTicketCollectorService
         [DllImport("advapi32.dll", SetLastError = true)]
         private static extern bool SetServiceStatus(IntPtr handle, ref ServiceStatus serviceStatus);
 
-        string path;
-        string filePath;
-        string fileName;
-        TcpClient client;
-        TcpListener server;
-        TimeSpan minResetHour;
-        TimeSpan maxResetHour;
+        readonly TcpListener _TCPServer;
+        Timer _timer = new Timer(1000);
 
-        ILog logger = LogManager.GetLogger("RollingLogFileAppender");
+        readonly ILog logger = LogManager.GetLogger("RollingLogFileAppender");
+        readonly ILog ticket = LogManager.GetLogger("TicketLog");
 
         public TCPTicketCollectorService()
         {
             InitializeComponent();
 
-            /*eventLog1 = new EventLog();
-            if (!EventLog.SourceExists("TicketCollectorService"))
-            {
-                EventLog.CreateEventSource(
-                    "TicketCollectorService", "NewLog");
-            }
-            eventLog1.Source = "TicketCollectorService";
-            eventLog1.Log = "NewLog";
-*/
-            try
-            {
-                var hour = int.Parse(ConfigurationManager.AppSettings["ResetHour"]);
-                var minute = int.Parse(ConfigurationManager.AppSettings["ResetMinute"]);
-                var interval = int.Parse(ConfigurationManager.AppSettings["CheckInterval"]);
-                minResetHour = new TimeSpan(hour, minute, 0);
-                maxResetHour = new TimeSpan(hour, minute, interval);
+            _TCPServer = new TcpListener(IPAddress.Parse(ConfigurationManager.AppSettings["IPAddress"]), Int32.Parse(ConfigurationManager.AppSettings["Port"]));
+            _TCPServer.Start();
+            logger.Debug($"Iniciando serviço.\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nAguardando conexão...");
 
-                // Set the TcpListener.
-                Int32 port = Int32.Parse(ConfigurationManager.AppSettings["Port"]);
-                IPAddress localAddr = IPAddress.Parse(ConfigurationManager.AppSettings["IPAddress"]);
-                // TcpListener server = new TcpListener(port);
-                server = new TcpListener(localAddr, port);
-
-                // Start listening for client requests.
-                StartServer();
-            }
-            catch(Exception ex)
-            {
-                //eventLog1.WriteEntry($"Erro na instanciação do TcpListener.\n\n{ex}", EventLogEntryType.Error);
-                logger.Error($"Erro na instanciação do TcpListener.\n\n{ex}");
-            } 
+            _timer.Elapsed += ReadFromClient;
+            _timer.Start();
         }
+
+        public void ReadFromClient(object sender, ElapsedEventArgs args)
+        {
+            _timer.Stop();
+            logger.Info("Nenhuma central conectada.");
+            if (_TCPServer.Pending())
+            {
+                var client = _TCPServer.AcceptTcpClient();
+
+                logger.Debug($"Conectado a central {client.Client.RemoteEndPoint}\nIniciando leitura de dados. Aguardando 5 segundos a espera de dados");
+                System.Threading.Thread.Sleep(5000);
+                try
+                {
+                    NetworkStream stream = client.GetStream();
+
+                    
+                    // Buffer for reading data
+                    Byte[] bytes = new Byte[256];
+                    int i;
+
+                    
+                    // First check if there is data available
+                    while (client.Available > 0)
+                    {
+                        logger.Debug($"Tem dados disponíveis");
+
+                        // Loop to receive all the data sent by the client.
+                        while ((i = stream.Read(bytes, 0, bytes.Length)) != 0)
+                        {
+                            // Translate data bytes to a ASCII string.
+                            string data = Encoding.ASCII.GetString(bytes, 0, i);
+                            logger.Debug($"Recebendo informação da central e escrevendo no arquivo");
+                            try
+                            {
+                                ticket.Info(data.Replace(",", ";"));
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.Error($"Não foi possível escrever no arquivo.\n{ex}");
+                            }
+
+                            // Await one second to receive more data, if receive the loop will proceed otherwise will be 
+                            System.Threading.Thread.Sleep(1000);
+                            if (client.Available == 0)
+                                break;
+                        }
+                    }
+                    logger.Error($"Sem dados a serem lidos.");
+                    client.Close();
+                    logger.Debug($"Client closed.");
+                }
+                catch (SocketException e)
+                {
+                    //eventLog1.WriteEntry($"Erro na leitura de dados.\n\n{e}", EventLogEntryType.Error);
+                    logger.Error($"Erro na leitura de dados.\n{e}");
+                }
+            }
+            _timer.Start();
+        }
+
+
+
+
+
+
+
+
+
+
 
         protected override void OnStart(string[] args)
         {
@@ -74,98 +112,9 @@ namespace TCPTicketCollectorService
             serviceStatus.dwWaitHint = 100000;
             SetServiceStatus(ServiceHandle, ref serviceStatus);
 
-            //eventLog1.WriteEntry("Iniciando serviço.");
-
-            filePath = ConfigurationManager.AppSettings["OutputFolder"];
-            CheckFile();
-
-            Timer timer = new Timer();
-            timer.Interval = int.Parse(ConfigurationManager.AppSettings["CheckInterval"]) * 1000; // in seconds
-            timer.Elapsed += new ElapsedEventHandler(OnTimer);
-            timer.Start();
-
-
             // Update the service state to Running.
             serviceStatus.dwCurrentState = ServiceState.SERVICE_RUNNING;
             SetServiceStatus(ServiceHandle, ref serviceStatus);
-        }
-
-        public void OnTimer(object sender, ElapsedEventArgs args)
-        {
-            if (minResetHour < DateTime.Now.TimeOfDay && DateTime.Now.TimeOfDay < maxResetHour)
-            {
-                logger.Info($"Reiniciando o Serviço...");
-                try
-                {
-                    if(client != null)
-                    {
-                        client.Close();
-                        client.Dispose();
-                    }
-                    server.Stop();
-                    StartServer();
-                } catch(Exception ex)
-                {
-                    logger.Error($"Falha ao reiniciar o serviço. \n {ex}");
-                }
-                return;
-            }
-
-            if (client == null || !client.Connected) {
-                //eventLog1.WriteEntry("Nenhuma central conectada.", EventLogEntryType.Warning);
-                logger.Info("Nenhuma central conectada");
-                return;
-            }
-
-
-            try
-            {
-                // Get a stream object for reading and writing
-                NetworkStream stream = client.GetStream();
-
-                // Buffer for reading data
-                Byte[] bytes = new Byte[256];
-                int i;
-
-                CheckFile();
-
-                // Loop to receive all the data sent by the client.
-                while ((i = stream.Read(bytes, 0, bytes.Length)) != 0)
-                {
-                    // Translate data bytes to a ASCII string.
-                    string data = Encoding.ASCII.GetString(bytes, 0, i);
-                    //eventLog1.WriteEntry($"Recebendo informação da central e escrevendo no arquivo {fileName}", EventLogEntryType.Information);
-                    logger.Debug($"Recebendo informação da central e escrevendo no arquivo {fileName}");
-
-                    // Write array of strings to a file using WriteAllLines.
-                    // If the file does not exists, it will create a new file.
-                    // This method automatically opens the file, writes to it, and closes file
-                    //eventLog1.WriteEntry($"Escrevendo no arquivo.", EventLogEntryType.Information);
-                    if (!File.Exists(path))
-                    {
-                        logger.Debug($"Criando novo arquivo {fileName}");
-                        var file = File.AppendText(path);
-                        file.Write("Horario inicial da chamada;Tempo de conexao;Tempo de toque;Chamador;Direcao;Numero chamado;Numero discado;Codigo de conta;E interno;ID da chamada;Continuacao;Dispositivo da parte1;Nome da parte1;Dispositivo da parte2;Nome da parte2;Tempo em espera;Tempo de estacionamento;Autorizacao valida;Codigo de autorizacao;Usuario cobrado;Cobranca de chamada;Moeda;Valor na ultima mudanca de usuario;Unidades de chamada;Unidades na ultima mudanca de usuario;Custo por unidade;Marcacao;Causa do destino externo;ID do destino externo;Numero do destino externo;Endereco IP do servidor do chamador;ID exclusiva da chamada para o ramal do chamador;Endereco IP do servidor do receptor da chamada;ID exclusiva da chamada para o ramal chamado;Horario do registro SMDR;Diretriz de consentimento do chamador;Verificacao do numero chamador;Outros\n");
-                        file.Close();
-                    }
-                    Write2File(data.Replace(",", ";"));
-
-                    /*byte[] msg = Encoding.ASCII.GetBytes(data);
-                    // Send back a response.
-                    stream.Write(msg, 0, msg.Length);
-                    Console.WriteLine("Sent: {0}", data);*/
-                }
-            }
-            catch (SocketException e)
-            {
-                //eventLog1.WriteEntry($"Erro na leitura de dados.\n\n{e}", EventLogEntryType.Error);
-                logger.Error($"Erro na leitura de dados.\n{e}");
-            }
-        }
-
-        public void RestartService()
-        {
-            
         }
 
         protected override void OnStop()
@@ -183,7 +132,7 @@ namespace TCPTicketCollectorService
             SetServiceStatus(this.ServiceHandle, ref serviceStatus);
 
 
-            server.Stop();
+            _TCPServer.Stop();
         }
 
 
@@ -208,56 +157,11 @@ namespace TCPTicketCollectorService
             public int dwServiceSpecificExitCode;
             public int dwCheckPoint;
             public int dwWaitHint;
-        };
-
-
-        public void Write2File(string data)
-        {
-            try
-            {
-                var file = File.AppendText(path);
-                file.Write(data);
-                file.Close();
-            } catch (Exception ex) {
-                //eventLog1.WriteEntry($"Não foi possível escrever o log.\n\n{ex}", EventLogEntryType.Error);
-                logger.Error($"Não foi possível escrever no arquivo.\n{ex}");
-            }
         }
 
-        public void CheckFile()
-        {
-            string day = DateTime.Now.Day < 10 ? "0" + DateTime.Now.Day.ToString() : DateTime.Now.Day.ToString();
-            string month = DateTime.Now.Month < 10 ? "0" + DateTime.Now.Month.ToString() : DateTime.Now.Month.ToString();
-            string year = DateTime.Now.Year.ToString();
 
-            fileName = $"Ticket_{day}{month}{year}.csv";
-            path = Path.Combine(filePath, fileName);
-        }
 
-        public void StartServer()
-        {
-            try
-            {
-                // Start listening for client requests.
-                server.Start();
 
-                logger.Debug($"Iniciando serviço.\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nPasta de destino: {ConfigurationManager.AppSettings["OutputFolder"]}\nIntervalo de leitura: {ConfigurationManager.AppSettings["CheckInterval"]} seg\nHorário de reset do socket: entre {minResetHour} e {maxResetHour}\nAguardando conexão...");
-
-                server.AcceptTcpClientAsync().ContinueWith(result =>
-                {
-                    client = result.Result;
-                    //eventLog1.WriteEntry("Conectado ao PABX", EventLogEntryType.Information);
-                    // TODO: Insert monitoring activities here.
-                    //eventLog1.WriteEntry("Monitorando o sistema.", EventLogEntryType.Information);
-                    logger.Info($"Conectado ao PABX {client.Client.RemoteEndPoint}... Monitorando o sistema");
-                });
-            }
-            catch (Exception ex)
-            {
-                //eventLog1.WriteEntry($"Erro na instanciação do TcpListener.\n\n{ex}", EventLogEntryType.Error);
-                logger.Error($"Erro na instanciação do TcpListener.\n{ex}");
-            }
-        }
     }
 }
 
