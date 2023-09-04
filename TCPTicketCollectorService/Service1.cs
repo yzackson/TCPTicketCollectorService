@@ -18,10 +18,13 @@ namespace TCPTicketCollectorService
         private static extern bool SetServiceStatus(IntPtr handle, ref ServiceStatus serviceStatus);
 
         readonly TcpListener _TCPServer;
-        Timer _timer = new Timer(1000);
+        readonly Timer _timer = new Timer(1000);
 
-        readonly ILog logger = LogManager.GetLogger("RollingLogFileAppender");
-        readonly ILog ticket = LogManager.GetLogger("TicketLog");
+        readonly ILog logger;
+        readonly ILog ticket;
+
+
+        bool _resetTicket = true;
 
         public TCPTicketCollectorService()
         {
@@ -29,21 +32,43 @@ namespace TCPTicketCollectorService
 
             _TCPServer = new TcpListener(IPAddress.Parse(ConfigurationManager.AppSettings["IPAddress"]), Int32.Parse(ConfigurationManager.AppSettings["Port"]));
             _TCPServer.Start();
-            logger.Debug($"Iniciando serviço.\nEndereço local de conexão:{ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}\nAguardando conexão...");
 
+            logger = LogManager.GetLogger("RollingLogFileAppender");
+            logger.Debug($"Iniciando serviço.");
+            logger.Debug($"Endereço para conexão:{ ConfigurationManager.AppSettings["IPAddress"] + ":" + ConfigurationManager.AppSettings["Port"]}. Aguardando conexão...");
+            ticket = LogManager.GetLogger("TicketLog");
+            logger.Debug("Ticket logger instanciado");
             _timer.Elapsed += ReadFromClient;
             _timer.Start();
+            logger.Debug("Timer de leitura de conexão TCP inciado");
         }
 
         public void ReadFromClient(object sender, ElapsedEventArgs args)
         {
             _timer.Stop();
             logger.Info("Nenhuma central conectada.");
+
+            
+            if(DateTime.Now.TimeOfDay.Hours == 0 && DateTime.Now.TimeOfDay.Minutes == 0)
+            {
+                if (_resetTicket)
+                {
+                    TicketCreated();
+
+                    _resetTicket = false;
+                }
+            } else
+            {
+                _resetTicket = true;
+            }
+            
+            
+
             if (_TCPServer.Pending())
             {
                 var client = _TCPServer.AcceptTcpClient();
 
-                logger.Debug($"Conectado a central {client.Client.RemoteEndPoint}\nIniciando leitura de dados. Aguardando 5 segundos a espera de dados");
+                logger.Debug($"Conectado a central {client.Client.RemoteEndPoint}\nIniciando leitura de dados. Aguardando 5 segundos à espera de dados");
                 System.Threading.Thread.Sleep(5000);
                 try
                 {
@@ -94,7 +119,11 @@ namespace TCPTicketCollectorService
             _timer.Start();
         }
 
-
+        public void TicketCreated()
+        {
+            logger.Debug($"Novo arquivo de Ticket gerado.");
+            ticket.Info("Horario inicial da chamada;Tempo de conexao;Tempo de toque;Chamador;Direcao;Numero chamado;Numero discado;Codigo de conta;E interno;ID da chamada;Continuacao;Dispositivo da parte1;Nome da parte1;Dispositivo da parte2;Nome da parte2;Tempo em espera;Tempo de estacionamento;Autorizacao valida;Codigo de autorizacao;Usuario cobrado;Cobranca de chamada;Moeda;Valor na ultima mudanca de usuario;Unidades de chamada;Unidades na ultima mudanca de usuario;Custo por unidade;Marcacao;Causa do destino externo;ID do destino externo;Numero do destino externo;Endereco IP do servidor do chamador;ID exclusiva da chamada para o ramal do chamador;Endereco IP do servidor do receptor da chamada;ID exclusiva da chamada para o ramal chamado;Horario do registro SMDR;Diretriz de consentimento do chamador;Verificacao do numero chamador;Outros\n");
+        }
 
 
 
